@@ -18,16 +18,21 @@ services:
     volumes:
       - ./scripts/init-models.sh:/init-models.sh:ro
       - ollama_data:/root/.ollama
-    entrypoint: ["/bin/sh", "/init-models.sh"]
+    entrypoint: [ "/bin/sh", "/init-models.sh" ]
     restart: "no"
 
   rag:
     build: .
     container_name: rag-app
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started
+      model-init:
+        condition: service_completed_successfully
     environment:
       OLLAMA_URL: http://ollama:11434
+      CHAT_MODEL: qwen3:4b
+      EMBED_MODEL: nomic-embed-text
     volumes:
       - ./docs:/app/docs:ro
     stdin_open: true
