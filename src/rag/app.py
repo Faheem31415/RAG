@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 import numpy as np
@@ -47,6 +48,21 @@ def check_ollama_health(timeout: float = 3.0) -> Tuple[bool, str]:
         return False, f"Ollama returned HTTP status {r.status_code}"
     except requests.exceptions.RequestException as e:
         return False, str(e)
+
+
+def wait_for_ollama(timeout_seconds: int = 60, retry_interval: float = 2.0) -> bool:
+    """Poll Ollama until it is responsive or timeout expires."""
+    print(f"Connecting to Ollama at {OLLAMA_URL}...", end="", flush=True)
+    start_time = time.time()
+    while time.time() - start_time < timeout_seconds:
+        healthy, _ = check_ollama_health(timeout=2.0)
+        if healthy:
+            print(" Connected!")
+            return True
+        print(".", end="", flush=True)
+        time.sleep(retry_interval)
+    print(" Timeout!")
+    return False
 
 
 def embed(texts: List[str], batch_size: int = 32) -> np.ndarray:
@@ -258,6 +274,22 @@ def ask_llm(prompt: str, context: Optional[str] = None) -> None:
 # MAIN APPLICATION
 # --------------------------------
 
+def run_chat_query(index: RAGIndex, question: str) -> None:
+    """Execute retrieval and ask LLM for a single question."""
+    print("\nAnswer: ", end="", flush=True)
+    try:
+        relevant_chunks = index.retrieve(question, k=DEFAULT_TOP_K)
+        context = "\n\n".join(relevant_chunks)
+        ask_llm(prompt=question, context=context)
+    except requests.exceptions.RequestException as e:
+        print(f"\nOllama connection error: {e}")
+    except RuntimeError as e:
+        print(f"\nError: {e}")
+    except Exception as e:
+        print(f"\nUnexpected error: {e}")
+    print()
+
+
 def main() -> None:
     print("================================")
     print("       RAG CHAT APPLICATION     ")
@@ -267,12 +299,12 @@ def main() -> None:
     print(f"Embed Model  : {EMBED_MODEL}")
     print("Type 'exit' or 'quit' to quit.\n")
 
-    # Health check
-    healthy, msg = check_ollama_health()
-    if not healthy:
-        print(f"[!] Warning: Ollama server not reachable at {OLLAMA_URL} ({msg}).")
-        print("    If using Docker, run: docker compose up -d")
+    # Wait for Ollama to become responsive
+    if not wait_for_ollama(timeout_seconds=60):
+        print(f"\n[!] Error: Could not connect to Ollama at {OLLAMA_URL} after 60 seconds.")
+        print("    If using Docker, check container status with: docker compose logs ollama")
         print("    If running locally, start: ollama serve\n")
+        sys.exit(1)
 
     # Load and index documents
     print("Loading documents and generating embeddings...")
@@ -283,6 +315,20 @@ def main() -> None:
         print(f"\n[!] Failed to initialize knowledge base: {e}")
         sys.exit(1)
 
+    # Check if running in non-interactive / piped mode
+    if not sys.stdin.isatty():
+        # Read lines from piped input if any
+        for line in sys.stdin:
+            question = line.strip()
+            if not question:
+                continue
+            if question.lower() in ["exit", "quit"]:
+                break
+            print(f"Ask: {question}")
+            run_chat_query(index, question)
+        return
+
+    # Interactive TTY loop
     while True:
         try:
             question = input("Ask: ").strip()
@@ -297,28 +343,8 @@ def main() -> None:
             print("Goodbye!")
             break
 
-        print("\nAnswer: ", end="", flush=True)
-
-        try:
-            # Retrieve relevant context
-            relevant_chunks = index.retrieve(question, k=DEFAULT_TOP_K)
-            context = "\n\n".join(relevant_chunks)
-
-            # Generate streaming response
-            ask_llm(prompt=question, context=context)
-
-        except requests.exceptions.RequestException as e:
-            print(f"\nOllama connection error: {e}")
-
-        except RuntimeError as e:
-            print(f"\nError: {e}")
-
-        except Exception as e:
-            print(f"\nUnexpected error: {e}")
-
-        print()
+        run_chat_query(index, question)
 
 
 if __name__ == "__main__":
     main()
-

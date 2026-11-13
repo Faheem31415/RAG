@@ -10,27 +10,31 @@ A local Retrieval-Augmented Generation (RAG) assistant for **Brew Haven Café**.
 - **Local Embeddings**: Generates document and query embeddings using `nomic-embed-text` via Ollama.
 - **Vector Search**: Fast cosine similarity retrieval via normalized dot products to find top matching context chunks.
 - **Streaming LLM Generation**: Streams tokens in real time from `qwen3:4b` using Ollama's Chat API with strict system guardrails ("answer ONLY using context").
-- **Docker Compose Ready**: Full containerized orchestration running Ollama, model initialization, and the interactive RAG CLI application.
+- **Docker Compose Ready**: Full containerized orchestration running Ollama with healthchecks, automated model initialization, and the interactive RAG CLI application.
 
 ---
 
 ## Quick Start with Docker (Recommended)
 
-Run the entire stack with Docker Compose:
-
+### 1. (Optional) Run Docker without sudo
+If you encounter `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock` on Linux/EC2, add your user to the `docker` group:
 ```bash
-docker compose up --build
+sudo usermod -aG docker $USER
+newgrp docker
 ```
 
-Docker Compose will:
-1. Start the Ollama server container.
-2. Run `rag-model-init` to automatically pull `qwen3:4b` and `nomic-embed-text`.
-3. Launch the `rag-app` container attached to interactive stdin/tty.
-
-To attach to the interactive chat session:
+### 2. Start Ollama and Download Models
+Start the Ollama backend in detached mode. The `rag-model-init` service will automatically pull `qwen3:4b` and `nomic-embed-text`:
 ```bash
-docker attach rag-app
+docker compose up -d --build
 ```
+
+### 3. Launch the Interactive RAG Chat
+To run the interactive chat CLI in your terminal:
+```bash
+docker compose run --rm rag
+```
+*(Or simply run `docker compose up` in foreground without `-d`)*.
 
 ---
 
